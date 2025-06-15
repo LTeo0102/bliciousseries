@@ -20,7 +20,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 <td>
                     <div class="quantity-buttons">
                         <button type="button" onclick="changeQuantity(${index}, -1)">−</button>
-                        ${item.quantity}
+                        <input type="number" min="1" value="${item.quantity}" data-index="${index}" class="quantity-input">
                         <button type="button" onclick="changeQuantity(${index}, 1)">+</button>
                     </div>
                 </td>
@@ -33,7 +33,10 @@ document.addEventListener("DOMContentLoaded", () => {
         tfoot.innerHTML = `
             <tr>
                 <td colspan="4"><strong>Cart Total</strong><br><small>(All items in cart)</small></td>
-                <td colspan="2"><div id="cart-total">RM 0.00</div><div><strong>Selected:</strong> <span id="selected-total">RM 0.00</span></div></td>
+                <td colspan="2">
+                    <div id="cart-total">RM 0.00</div>
+                    <div><strong>Selected:</strong> <span id="selected-total">RM 0.00</span></div>
+                </td>
             </tr>
         `;
         updateTotal();
@@ -73,6 +76,18 @@ document.addEventListener("DOMContentLoaded", () => {
         updateCartDisplay();
         updateCartBadge();
     };
+
+    tbody.addEventListener("input", function(e) {
+        if (e.target.classList.contains("quantity-input")) {
+            const index = parseInt(e.target.dataset.index);
+            let newQty = parseInt(e.target.value);
+            if (isNaN(newQty) || newQty < 1) newQty = 1;
+            cart[index].quantity = newQty;
+            localStorage.setItem(cartKey, JSON.stringify(cart));
+            updateTotal();
+            updateCartBadge();
+        }
+    });
 
     document.addEventListener("change", function(e) {
         if (e.target.classList.contains("select-item") || e.target.id === "select-all") {
@@ -135,16 +150,23 @@ document.addEventListener("DOMContentLoaded", () => {
             method: "POST",
             body: formData
         })
-        .then(res => res.json())
-        .then(data => {
-            alert(data.message);
-            localStorage.removeItem(cartKey);
-            updateCartBadge();
-            window.location.href = "/agent/order";
+        .then(async res => {
+            const data = await res.json();
+            if (res.ok) {
+                alert(data.message);
+                localStorage.removeItem(cartKey);
+                updateCartBadge();
+                window.location.href = "/agent/order";
+            } else {
+                alert(data.message);
+                throw new Error(data.message);
+            }
         })
         .catch(err => {
             console.error("Checkout error:", err);
-            alert("Failed to place order.");
+            if (!err.message) {
+                alert("Failed to place order.");
+            }
         });
     });
 

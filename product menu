@@ -1,6 +1,0 @@
-INSERT INTO products (name, description, price, quantity, image) VALUES
-('Chocolate Chip Cookies', 'Delicious homemade chocolate chip cookies.', 5.99, 50, 'chocolate_chip_cookies.jpg'),
-('Oatmeal Raisin Cookies', 'Healthy oatmeal cookies with raisins.', 6.49, 30, 'oatmeal_raisin_cookies.jpg'),
-('Peanut Butter Cookies', 'Crunchy peanut butter cookies for peanut lovers.', 5.99, 40, 'peanut_butter_cookies.jpg'),
-('Sugar Cookies', 'Classic sugar cookies with a soft and chewy texture.', 4.99, 60, 'sugar_cookies.jpg'),
-('Macadamia Nut Cookies', 'Premium macadamia nut cookies with a rich flavor.', 7.99, 25, 'macadamia_nut_cookies.jpg');

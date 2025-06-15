@@ -7,10 +7,11 @@
     
     <!-- Link to external CSS file -->
     <link rel="stylesheet" href="{{ url_for('static', filename='manage_product.css') }}">
-    <!-- Back Button -->
-    <a href="/clerk/dashboard" class="back-link">←</a>
 </head>
 <body>
+    <!-- Back Button -->
+    <a href="/clerk/dashboard" class="back-link">←</a>
+
     <!-- Header Section -->
     <header>
         <h1>Bliciousseries</h1>
@@ -29,15 +30,23 @@
         <!-- Product List -->
         <ul class="product-list">
             {% for product in products %}
-            <li class="product-item">
+            <li class="product-item {% if product[6] == 0 %}out-of-stock-item{% endif %}">
                 <!-- Product Image -->
                 {% if product[7] %}
                     <img src="{{ url_for('static', filename='uploads/' + product[7]) }}" alt="{{ product[1] }}" class="product-image">
                 {% else %}
                     <p>No image available</p>
                 {% endif %}
+
                 <!-- Product Name -->
                 <h3>{{ product[1] }}</h3>
+
+                <!-- Stock Status -->
+                {% if product[6] > 0 %}
+                    <p class="in-stock">In Stock: {{ product[6] }}</p>
+                {% else %}
+                    <p class="out-of-stock">Out of Stock</p>
+                {% endif %}
 
                 <!-- Product Actions -->
                 <div class="product-actions">

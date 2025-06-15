@@ -20,7 +20,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 <td>
                     <div class="quantity-buttons">
                         <button type="button" onclick="changeQuantity(${index}, -1)">−</button>
-                        ${item.quantity}
+                        <input type="number" min="1" value="${item.quantity}" data-index="${index}" class="quantity-input">
                         <button type="button" onclick="changeQuantity(${index}, 1)">+</button>
                     </div>
                 </td>
@@ -71,6 +71,18 @@ document.addEventListener("DOMContentLoaded", () => {
         localStorage.setItem(cartKey, JSON.stringify(cart));
         updateCartDisplay();
     };
+
+    tbody.addEventListener("input", function(e) {
+        if (e.target.classList.contains("quantity-input")) {
+            const index = parseInt(e.target.dataset.index);
+            let newQty = parseInt(e.target.value);
+            if (isNaN(newQty) || newQty < 1) newQty = 1;
+            cart[index].quantity = newQty;
+            localStorage.setItem(cartKey, JSON.stringify(cart));
+            updateTotal();
+            updateCartBadge();
+        }
+    });
 
     document.addEventListener("change", function (e) {
         if (e.target.classList.contains("select-item") || e.target.id === "select-all") {

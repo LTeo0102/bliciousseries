@@ -1,152 +1,219 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Manage Orders - Bliciousseries</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/clerk_manage_orders.css') }}">
+  <meta charset="UTF-8">
+  <title>Manage Orders - Bliciousseries</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/clerk_manage_orders.css') }}">
 </head>
 <body>
 
-
 <header>
-    <a href="{{ url_for('clerk_dashboard') }}" class="back-link">←</a>
-    <h1>Bliciousseries</h1>
+  <a href="{{ url_for('clerk_dashboard') }}" class="back-link">←</a>
+  <h1>Bliciousseries</h1>
 </header>
 
 <main>
-    <div class="page-title">
-        <h2>Manage Orders</h2>
-    </div>
-<!-- Main Section Switch Tabs -->
-<div class="page-switch">
-    <a href="{{ url_for('clerk_manage_orders', filter='all', per_page=per_page) }}" 
-       class="switch-button {% if request.path.startswith('/clerk/manage_orders') %}active{% endif %}">
-        Orders
-    </a>
-    <a href="{{ url_for('clerk_manage_paylater', page=1, per_page=per_page) }}" 
-       class="switch-button {% if request.path.startswith('/clerk/manage_paylater') %}active{% endif %}">
-        Pay Later
-    </a>
-</div>
-<!-- Sub-Filter Tabs (Only for Orders) -->
-<div class="tabs">
+  <div class="page-title">
+    <h2>Manage Orders</h2>
+  </div>
+
+  <!-- Top Switch Tabs -->
+  <div class="page-switch">
+    <a href="{{ url_for('clerk_manage_orders', filter='all', per_page=per_page) }}"
+       class="switch-button {% if request.path.startswith('/clerk/manage_orders') %}active{% endif %}">Orders</a>
+    <a href="{{ url_for('clerk_manage_paylater', page=1, per_page=per_page) }}"
+       class="switch-button {% if request.path.startswith('/clerk/manage_paylater') %}active{% endif %}">Pay Later</a>
+  </div>
+
+  <!-- Sub Tabs -->
+  <div class="tabs">
     <a href="{{ url_for('clerk_manage_orders', filter='all', per_page=per_page) }}" class="tab {% if active_tab == 'all' %}active{% endif %}">All</a>
     <a href="{{ url_for('clerk_manage_orders', filter='pending', per_page=per_page) }}" class="tab {% if active_tab == 'pending' %}active{% endif %}">Pending</a>
     <a href="{{ url_for('clerk_manage_orders', filter='active', per_page=per_page) }}" class="tab {% if active_tab == 'active' %}active{% endif %}">Active</a>
     <a href="{{ url_for('clerk_manage_orders', filter='completed', per_page=per_page) }}" class="tab {% if active_tab == 'completed' %}active{% endif %}">Completed</a>
     <a href="{{ url_for('clerk_manage_orders', filter='declined', per_page=per_page) }}" class="tab {% if active_tab == 'declined' %}active{% endif %}">Declined</a>
-</div>
+  </div>
 
+  <!-- Filter by Date / Month -->
+  <form method="get" id="filterForm" class="filter-form">
+    <input type="hidden" name="filter" value="{{ active_tab }}">
+    <label>Date:
+      <input type="date" name="date" id="dateInput" value="{{ request.args.get('date', '') }}">
+    </label>
+    <label>Month:
+      <input type="month" name="month" id="monthInput" value="{{ request.args.get('month', '') }}">
+    </label>
+    <button type="submit" class="filter-btn">Search</button>
+    <span class="filter-tip">*Tip: Choose either Date OR Month to filter orders.</span>
+  </form>
 
+  <!-- Show Entries Dropdown -->
+  <form method="get" class="entries-form">
+    <input type="hidden" name="filter" value="{{ active_tab }}">
+    Show 
+    <select name="per_page" onchange="this.form.submit()">
+      <option value="10" {% if per_page == 10 %}selected{% endif %}>10</option>
+      <option value="20" {% if per_page == 20 %}selected{% endif %}>20</option>
+      <option value="30" {% if per_page == 30 %}selected{% endif %}>30</option>
+    </select>
+    entries
+  </form>
 
-    <!-- Show Entries Dropdown -->
-    <form method="get">
-        <input type="hidden" name="filter" value="{{ active_tab }}">
-        Show 
-        <select name="per_page" onchange="this.form.submit()">
-            <option value="10" {% if per_page == 10 %}selected{% endif %}>10</option>
-            <option value="20" {% if per_page == 20 %}selected{% endif %}>20</option>
-            <option value="30" {% if per_page == 30 %}selected{% endif %}>30</option>
-        </select>
-        entries
-    </form>
-
-    <!-- Orders Table -->
-    <div class="table-container">
-        <table>
-            <thead>
-                <tr>
-                    <th>#</th>
-                    <th>Date</th>
-                    <th>User</th>
-                    <th>Payment</th>
-                    <th>Total (RM)</th>
-                    <th>Status</th>
-                    <th>Details</th>
-                    <th>Action</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for order in orders %}
-                <tr>
-                    <td>{{ loop.index + start_entry - 1 }}</td>
-                    <td>{{ order.order_date.strftime('%Y-%m-%d %H:%M:%S') }}</td>
-                    <td>{{ order.name }}</td>
-                    <td>{{ order.payment_method.replace('_', ' ').title() }}</td>
-                    <td>RM {{ '%.2f' | format(order.total if order.total is defined else 0.00) }}</td>
-                    <td>
-    {% if order.status == 'decline' %}
-        {% if order.cancelled_by == 'clerk' %}
-            <span class="status declined">Declined</span>
-        {% else %}
-            <span class="status cancelled">Cancelled</span>
-        {% endif %}
-    {% else %}
-        <span class="status {{ order.status }}">{{ order.status.title() }}</span>
-    {% endif %}
+  <!-- Orders Table -->
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Date</th>
+          <th>User</th>
+          <th>Payment</th>
+          <th>Total (RM)</th>
+          <th>Status</th>
+          <th>Details</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for order in orders %}
+        <tr>
+          <td>{{ loop.index + start_entry - 1 }}</td>
+          <td>{{ order.order_date.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+          <td><span class="user-name">{{ order.name }}</span>
+  <span class="user-role {{ order.role | lower }}">{{ order.role | capitalize }}</span>
 </td>
-
-                    <td>
-    <a class="view-btn" href="{{ url_for('clerk_order_details', order_id=order.id) }}">View</a>
-</td>
-
-                    <td>
-                        {% if order.status == 'pending' %}
-                            <form method="POST" action="{{ url_for('update_order_status', order_id=order.id) }}" style="display:flex; gap:5px;">
-                                <select name="new_status" class="btn-select">
-                                    <option value="proceed">✅ Approve</option>
-                                    <option value="decline">❌ Decline</option>
-                                </select>
-                                <button type="submit" class="btn view-btn">Update</button>
-                            </form>
-                        {% elif order.status == 'proceed' %}
-                            <form method="POST" action="{{ url_for('update_order_status', order_id=order.id) }}">
-                                <input type="hidden" name="new_status" value="delivery">
-                                <button class="view-btn">🚚 Delivery</button>
-                            </form>
-                        {% elif order.status == 'delivery' %}
-                            <form method="POST" action="{{ url_for('update_order_status', order_id=order.id) }}">
-                                <input type="hidden" name="new_status" value="completed">
-                                <button class="view-btn">🎉 Complete</button>
-                            </form>
-                        {% else %}
-                            {% if order.status == 'decline' %}
-    {% if order.cancelled_by == 'clerk' %}
-        <span class="btn-cancel">Declined</span>
-    {% else %}
-        <span class="btn-cancel">Cancelled</span>
-    {% endif %}
-{% else %}
-    <span class="btn-cancel">{{ order.status.title() }}</span>
-{% endif %}
-
-                        {% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-
-    <!-- Pagination Summary and Controls -->
-    <div class="pagination-container">
-        <p class="entries-info">Showing {{ start_entry }} to {{ end_entry }} of {{ total_orders }} entries</p>
-        <div class="pagination">
-            {% if page > 1 %}
-            <a href="{{ url_for('clerk_manage_orders', filter=active_tab, page=page-1, per_page=per_page) }}" class="page-btn">Previous</a>
+          <td>{{ order.payment_method.replace('_', ' ').title() }}</td>
+          <td>RM {{ '%.2f' | format(order.total if order.total is defined else 0.00) }}</td>
+          <td>
+            {% if order.status == 'decline' %}
+              {% if order.cancelled_by == 'clerk' %}
+                <span class="status declined">Declined</span>
+              {% else %}
+                <span class="status cancelled">Cancelled</span>
+              {% endif %}
+            {% else %}
+              <span class="status {{ order.status }}">{{ order.status.title() }}</span>
             {% endif %}
-            <span class="page-num">Page {{ page }}</span>
-            {% if has_next %}
-            <a href="{{ url_for('clerk_manage_orders', filter=active_tab, page=page+1, per_page=per_page) }}" class="page-btn">Next</a>
+          </td>
+          <td>
+            <a class="view-btn" href="{{ url_for('clerk_order_details', order_id=order.id) }}">View</a>
+          </td>
+          <td>
+            {% if order.status == 'pending' %}
+              <form method="POST" action="{{ url_for('update_order_status', order_id=order.id) }}" class="update-status-form" style="display:flex; gap:5px;">
+                <select name="new_status" class="btn-select">
+                  <option value="proceed">✅ Approve</option>
+                  <option value="decline">❌ Decline</option>
+                </select>
+                <button type="submit" class="view-btn">Update</button>
+              </form>
+            {% elif order.status == 'proceed' %}
+              <form method="POST" action="{{ url_for('update_order_status', order_id=order.id) }}" class="update-status-form">
+                <input type="hidden" name="new_status" value="delivery">
+                <button class="view-btn">🚚 Delivery</button>
+              </form>
+            {% elif order.status == 'delivery' %}
+              <form method="POST" action="{{ url_for('update_order_status', order_id=order.id) }}" class="update-status-form">
+                <input type="hidden" name="new_status" value="completed">
+                <button class="view-btn">🎉 Complete</button>
+              </form>
+            {% else %}
+              {% if order.status == 'decline' %}
+                {% if order.cancelled_by == 'clerk' %}
+                  <span class="btn-cancel">Declined</span>
+                {% else %}
+                  <span class="btn-cancel">Cancelled</span>
+                {% endif %}
+              {% else %}
+                <span class="btn-cancel">{{ order.status.title() }}</span>
+              {% endif %}
             {% endif %}
-        </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pagination -->
+  <div class="pagination-container">
+    <p class="entries-info">Showing {{ start_entry }} to {{ end_entry }} of {{ total_orders }} entries</p>
+    <div class="pagination">
+      {% if page > 1 %}
+        <a href="{{ url_for('clerk_manage_orders', filter=active_tab, page=page-1, per_page=per_page) }}" class="page-btn">Previous</a>
+      {% endif %}
+      <span class="page-num">Page {{ page }}</span>
+      {% if has_next %}
+        <a href="{{ url_for('clerk_manage_orders', filter=active_tab, page=page+1, per_page=per_page) }}" class="page-btn">Next</a>
+      {% endif %}
     </div>
+  </div>
 </main>
 
-<!-- Footer -->
+
 <footer>
-    <p>© 2025 Bliciousseries. Made with ❤️ and 🍪.</p>
+  <p>© 2025 Bliciousseries. Made with ❤️ and 🍪.</p>
 </footer>
+
+<script>
+  // ✅ Validate Date/Month filter
+  document.getElementById('filterForm').addEventListener('submit', function(e) {
+    const dateValue = document.getElementById('dateInput').value;
+    const monthValue = document.getElementById('monthInput').value;
+    if (dateValue && monthValue) {
+      alert("Please choose either Date OR Month — not both.");
+      e.preventDefault();
+    }
+  });
+
+  // ✅ Bulletproof: delegated handler for ALL .update-status-form forms
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.update-status-form').forEach(form => {
+    form.addEventListener('submit', function(e) {
+      e.preventDefault(); // prevent normal form submit
+
+      const action = this.action;
+      const formData = new FormData(this);
+
+      fetch(action, {
+        method: 'POST',
+        body: formData
+      })
+      .then(res => res.json())
+      .then(data => {
+  if (data.success) {
+    const orderId = data.order_id;
+    const newStatus = data.new_status;
+    const nextTab = data.next_tab;  // ✅ from server
+
+    // Update cells (optional)
+    const statusEl = document.getElementById(`status-${orderId}`);
+    if (statusEl) {
+      statusEl.textContent = newStatus.charAt(0).toUpperCase() + newStatus.slice(1);
+      statusEl.className = `status ${newStatus}`;
+    }
+    const actionEl = document.getElementById(`action-${orderId}`);
+    if (actionEl) {
+      actionEl.innerHTML = data.new_action_html;
+    }
+
+    // ✅ Redirect to next tab:
+    const perPage = new URLSearchParams(window.location.search).get('per_page') || 10;
+    window.location.href = `/clerk/manage_orders?filter=${nextTab}&per_page=${perPage}`;
+
+  } else {
+    alert("Failed to update status.");
+  }
+})
+
+      .catch(err => {
+        console.error(err);
+        alert("Error updating status.");
+      });
+    });
+  });
+});
+</script>
 
 </body>
 </html>

@@ -329,3 +329,22 @@ label {
     color: #6d4c41;
     margin-top: 4px;
 }
+
+/* === Quantity Input Field (editable) === */
+.quantity-buttons input.quantity-input {
+  width: 65px;
+  height: 40px;
+  text-align: center;
+  font-size: 16px;
+  padding: 6px 8px;
+  border: 2px solid #a1887f;
+  border-radius: 6px;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.quantity-buttons input.quantity-input:focus {
+  border-color: #8d6e63;
+  box-shadow: 0 0 5px rgba(141, 110, 99, 0.5);
+}
+

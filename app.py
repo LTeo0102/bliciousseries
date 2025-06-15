@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 from flask_mysqldb import MySQL
+from flask import jsonify
 import MySQLdb.cursors
 from datetime import datetime
 from decimal import Decimal
@@ -801,6 +802,11 @@ def clerk_manage_orders():
     page = int(request.args.get('page', 1))
     offset = (page - 1) * per_page
 
+    # ✅ User-provided date/month
+    day_filter = request.args.get('date')
+    month_filter = request.args.get('month')
+
+    # ✅ Build status condition
     status_condition = ""
     if filter_type == 'active':
         status_condition = "AND o.status IN ('proceed', 'delivery')"
@@ -811,31 +817,47 @@ def clerk_manage_orders():
     elif filter_type == 'pending':
         status_condition = "AND o.status = 'pending'"
 
+    # ✅ Only one filter: date OR month
+    date_condition = ""
+    params = []
+
+    if day_filter:
+        date_condition = " AND DATE(o.order_date) = %s"
+        params.append(day_filter)
+    elif month_filter:
+        date_condition = " AND DATE_FORMAT(o.order_date, '%%Y-%%m') = %s"
+        params.append(month_filter)
 
     cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
 
-    # Total count for pagination
+    # ✅ Apply params here!
     cursor.execute(f"""
         SELECT COUNT(*) as total
         FROM orders o
-        WHERE 1=1 {status_condition}
-    """)
+        WHERE 1=1 {status_condition} {date_condition}
+    """, params)
     total_orders = cursor.fetchone()['total']
     has_next = total_orders > page * per_page
 
-    # Fetch paginated results
     cursor.execute(f"""
-    SELECT o.order_id AS id, o.order_date, o.status, o.cancelled_by, o.receipt_image AS receipt,
-           o.payment_status AS payment_method, u.name,
+    SELECT o.order_id AS id,
+           o.order_date,
+           o.status,
+           o.cancelled_by,
+           o.receipt_image AS receipt,
+           o.payment_status AS payment_method,
+           u.name,
+           u.role,  -- ✅ Add this line!
            SUM(oi.quantity * oi.unit_price) AS total
     FROM orders o
     JOIN users u ON o.user_id = u.id
     JOIN order_items oi ON o.order_id = oi.order_id
-    WHERE 1=1 {status_condition}
+    WHERE 1=1 {status_condition} {date_condition}
     GROUP BY o.order_id
     ORDER BY o.order_date DESC
     LIMIT %s OFFSET %s
-""", (per_page, offset))
+""", params + [per_page, offset])
+
 
     orders = cursor.fetchall()
 
@@ -856,7 +878,7 @@ def clerk_manage_orders():
 @app.route('/clerk/update_order_status/<int:order_id>', methods=['POST'])
 def update_order_status(order_id):
     if session.get('role') != 'clerk':
-        return redirect(url_for('login'))
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
 
     new_status = request.form['new_status']
     cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
@@ -876,7 +898,7 @@ def update_order_status(order_id):
                 WHERE product_id = %s
             """, (item['quantity'], item['product_id']))
 
-        # Also mark who cancelled (system-side)
+        # Mark who cancelled
         cursor.execute("""
             UPDATE orders 
             SET status = %s, cancelled_by = 'clerk' 
@@ -893,8 +915,42 @@ def update_order_status(order_id):
     mysql.connection.commit()
     cursor.close()
 
-    flash(f"Order #{order_id} updated to {new_status}.", "success")
-    return redirect(url_for('clerk_manage_orders'))
+    # ✅ Generate the new Action cell HTML so JS can replace it dynamically:
+    if new_status == 'completed' or new_status == 'decline':
+        new_action_html = f'<span class="btn-cancel">{new_status.title()}</span>'
+    elif new_status == 'delivery':
+        new_action_html = f'''
+            <form method="POST" action="/clerk/update_order_status/{order_id}" class="update-status-form">
+                <input type="hidden" name="new_status" value="completed">
+                <button class="view-btn">🎉 Complete</button>
+            </form>
+        '''
+    else:
+        new_action_html = f'''
+            <form method="POST" action="/clerk/update_order_status/{order_id}" class="update-status-form">
+                <input type="hidden" name="new_status" value="delivery">
+                <button class="view-btn">🚚 Delivery</button>
+            </form>
+        '''
+    # ✅ Map new status to its next tab
+    tab_map = {
+        'proceed': 'active',   # pending → proceed → Active
+        'delivery': 'active',  # proceed → delivery → stays in Active
+        'completed': 'completed',  # delivery → completed → Completed
+        'decline': 'declined'  # pending → decline → Declined
+    }
+    next_tab = tab_map.get(new_status, 'all')
+   
+    # ✅ Return JSON with the new HTML for the <td>
+    return jsonify({
+        'success': True,
+        'order_id': order_id,
+        'new_status': new_status,
+        'new_action_html': new_action_html,
+        'next_tab': next_tab
+    })
+
+
 
 @app.route('/clerk/order/<int:order_id>/details')
 def clerk_order_details(order_id):
@@ -930,21 +986,55 @@ def clerk_order_details(order_id):
 # ---------------------------------------------
 # Clerk: Manage Pay Later
 # ---------------------------------------------
+# ---------------------------------------------
+# Clerk: Manage Pay Later (CLEAN FINAL)
+# ---------------------------------------------
 @app.route('/clerk/manage_paylater')
 def clerk_manage_paylater():
     if session.get('role') != 'clerk':
         return redirect(url_for('login'))
 
     verify_filter = request.args.get('filter', 'all')
-    verify_condition = ""
+
     if verify_filter == 'pending':
-        verify_condition = "AND o.payment_verify_status = 'pending'"
+        # Pending: has receipt AND status is pending OR rejected
+        verify_condition = """
+            AND o.receipt_image IS NOT NULL
+            AND o.payment_verify_status IN ('pending', 'unpaid')
+        """
     elif verify_filter == 'unpaid':
-        verify_condition = "AND o.payment_verify_status = 'unpaid'"
-    elif verify_filter == 'paid':
-        verify_condition = "AND o.payment_verify_status = 'paid'"
+        # Not Paid: NO receipt uploaded
+        verify_condition = """
+            AND o.receipt_image IS NULL
+            AND (o.payment_verify_status IS NULL OR o.payment_verify_status = '' OR o.payment_verify_status = 'unpaid')
+        """
+    elif verify_filter in ['paid', 'complete']:
+        # Complete: has receipt and approved
+        verify_condition = """
+            AND o.receipt_image IS NOT NULL
+            AND o.payment_verify_status = 'paid'
+        """
     else:
-        verify_condition = "AND o.payment_verify_status IN ('pending', 'unpaid', 'paid')"
+        # All: show everything grouped
+        verify_condition = """
+            AND (
+                (o.receipt_image IS NOT NULL AND o.payment_verify_status IN ('pending', 'unpaid', 'paid'))
+                OR (o.receipt_image IS NULL AND (o.payment_verify_status IS NULL OR o.payment_verify_status = '' OR o.payment_verify_status = 'unpaid'))
+            )
+        """
+
+    # Date filters
+    day_filter = request.args.get('date')
+    month_filter = request.args.get('month')
+    date_condition = ""
+    params = []
+
+    if day_filter:
+        date_condition = " AND DATE(o.order_date) = %s"
+        params.append(day_filter)
+    elif month_filter:
+        date_condition = " AND DATE_FORMAT(o.order_date, '%%Y-%%m') = %s"
+        params.append(month_filter)
 
     page = int(request.args.get('page', 1))
     per_page = int(request.args.get('per_page', 10))
@@ -952,21 +1042,22 @@ def clerk_manage_paylater():
 
     cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
 
-    # Count total orders
+    # Count
     cursor.execute(f"""
         SELECT COUNT(DISTINCT o.order_id) AS total
         FROM orders o
         WHERE o.payment_status = 'pay_later'
           AND o.status = 'completed'
           {verify_condition}
-    """)
+          {date_condition}
+    """, params)
     total = cursor.fetchone()['total']
     total_pages = (total + per_page - 1) // per_page
 
-    # Fetch paginated results
+    # Fetch
     cursor.execute(f"""
-        SELECT o.order_id, u.name, o.order_date AS receipt_uploaded_at, 
-               o.receipt_image, o.payment_verify_status, 
+        SELECT o.order_id, u.name, o.order_date AS receipt_uploaded_at,
+               o.receipt_image, o.payment_verify_status,
                SUM(oi.quantity * oi.unit_price) AS total
         FROM orders o
         JOIN users u ON o.user_id = u.id
@@ -974,10 +1065,11 @@ def clerk_manage_paylater():
         WHERE o.payment_status = 'pay_later'
           AND o.status = 'completed'
           {verify_condition}
+          {date_condition}
         GROUP BY o.order_id
         ORDER BY o.order_date DESC
         LIMIT %s OFFSET %s
-    """, (per_page, offset))
+    """, params + [per_page, offset])
     paylater_orders = cursor.fetchall()
     cursor.close()
 
@@ -990,20 +1082,33 @@ def clerk_manage_paylater():
         active_tab=verify_filter
     )
 
-
-
+# ---------------------------------------------
+# Clerk: Update Pay Later Status
+# ---------------------------------------------
 @app.route('/clerk/update_paylater_status/<int:order_id>', methods=['POST'])
 def update_paylater_status(order_id):
     if session.get('role') != 'clerk':
         return redirect(url_for('login'))
 
     new_status = request.form['new_status']  # 'paid' or 'unpaid'
-    cursor = mysql.connection.cursor()
-    cursor.execute("UPDATE orders SET payment_verify_status = %s WHERE order_id = %s", (new_status, order_id))
-    mysql.connection.commit()
-    flash(f"Pay later order #{order_id} updated to {new_status}.", 'success')
-    return redirect(url_for('clerk_manage_paylater'))
 
+    # Update in DB
+    cursor = mysql.connection.cursor()
+    cursor.execute(
+        "UPDATE orders SET payment_verify_status = %s WHERE order_id = %s",
+        (new_status, order_id)
+    )
+    mysql.connection.commit()
+    cursor.close()
+
+    # Decide next tab:
+    if new_status == 'paid':
+        next_tab = 'paid'  # means "Complete"
+    else:
+        next_tab = 'pending'  # stay in Pending if rejected
+
+    flash(f"Pay later order #{order_id} updated to {new_status.title()}.", 'success')
+    return redirect(url_for('clerk_manage_paylater', filter=next_tab))
 
 
 #------------------------------customer cart, pay and order status------------------------------
@@ -1057,18 +1162,41 @@ def customer_checkout():
     referred_agent = None
     if referral_code_input:
         referral_code_input = referral_code_input.strip()
-        cursor.execute("SELECT id FROM users WHERE referral_code = %s AND role = 'agent'", (referral_code_input,))
+        cursor.execute(
+            "SELECT id FROM users WHERE referral_code = %s AND role = 'agent'", 
+            (referral_code_input,)
+        )
         referred_agent = cursor.fetchone()
         if not referred_agent:
             return jsonify({"message": "Invalid referral code. Please try again."}), 400
 
-    # ✅ Insert order
+    # ✅ STOCK VALIDATION: check each product
+    for item in cart_items:
+        cursor.execute(
+        "SELECT name, quantity FROM products WHERE product_id = %s",
+        (item["id"],)
+    )
+    product = cursor.fetchone()
+    if not product:
+        return jsonify({"message": "Product not found."}), 400
+
+    if int(item["quantity"]) > int(product["quantity"]):
+        return jsonify({
+            "message": f"Not enough stock for '{product['name']}'. "
+                       f"Only {product['quantity']} left."
+        }), 400
+
+
+    # ✅ All valid → Insert order
     cursor.execute("""
         INSERT INTO orders (user_id, role, payment_status, referral_code_used, receipt_image,
                             shipping_name, shipping_phone, shipping_address)
         VALUES (%s, 'customer', %s, %s, %s, %s, %s, %s)
-    """, (user_id, payment_status, referral_code_input if referred_agent else None, filename,
-          shipping_name, shipping_phone, shipping_address))
+    """, (
+        user_id, payment_status,
+        referral_code_input if referred_agent else None,
+        filename, shipping_name, shipping_phone, shipping_address
+    ))
     mysql.connection.commit()
     order_id = cursor.lastrowid
 
@@ -1077,12 +1205,17 @@ def customer_checkout():
         cursor.execute("""
             INSERT INTO order_items (order_id, product_id, quantity, unit_price)
             VALUES (%s, %s, %s, %s)
-        """, (order_id, item["id"], item["quantity"], item["price"]))
+        """, (
+            order_id, item["id"], item["quantity"], item["price"]
+        ))
 
         cursor.execute("""
-            UPDATE products SET quantity = quantity - %s
-            WHERE product_id = %s AND quantity >= %s
-        """, (item["quantity"], item["id"], item["quantity"]))
+            UPDATE products 
+            SET quantity = quantity - %s 
+            WHERE product_id = %s
+        """, (
+            item["quantity"], item["id"]
+        ))
 
     # ✅ Add RM1 commission if referral valid
     if referred_agent:
@@ -1092,12 +1225,15 @@ def customer_checkout():
             INSERT INTO sales (user_id, amount, role, sale_month, sale_year)
             VALUES (%s, 1.00, 'agent', %s, %s)
             ON DUPLICATE KEY UPDATE amount = amount + 1.00
-        """, (agent_id, now.month, now.year))
+        """, (
+            agent_id, now.month, now.year
+        ))
 
     mysql.connection.commit()
     cursor.close()
 
     return jsonify({"message": "Order placed successfully!"})
+
 
 
 
@@ -1408,7 +1544,7 @@ def agent_checkout():
         return jsonify({'message': 'Shipping information is required.'}), 400
 
     try:
-        cursor = mysql.connection.cursor()
+        cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
         filename = None
 
         # Save receipt if paying now
@@ -1418,7 +1554,23 @@ def agent_checkout():
             filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
             receipt_file.save(filepath)
 
-        # Insert order
+        # ✅ Validate stock for each product
+        for item in cart:
+            cursor.execute(
+                "SELECT name, quantity FROM products WHERE product_id = %s",
+                (item['id'],)
+            )
+            product = cursor.fetchone()
+            if not product:
+                return jsonify({'message': 'Product not found.'}), 400
+
+            if int(item['quantity']) > int(product['quantity']):
+                return jsonify({
+                    'message': f"Not enough stock for '{product['name']}'. "
+                               f"Only {product['quantity']} left."
+                }), 400
+
+        # ✅ All stock OK — insert order
         cursor.execute("""
             INSERT INTO orders (
                 user_id, role, payment_status, status, receipt_image,
@@ -1432,7 +1584,7 @@ def agent_checkout():
         mysql.connection.commit()
         order_id = cursor.lastrowid
 
-        # Insert order items & update stock
+        # ✅ Insert order items & update stock
         for item in cart:
             cursor.execute("""
                 INSERT INTO order_items (order_id, product_id, quantity, unit_price)
@@ -1441,8 +1593,8 @@ def agent_checkout():
 
             cursor.execute("""
                 UPDATE products SET quantity = quantity - %s
-                WHERE product_id = %s AND quantity >= %s
-            """, (item['quantity'], item['id'], item['quantity']))
+                WHERE product_id = %s
+            """, (item['quantity'], item['id']))
 
         mysql.connection.commit()
         cursor.close()

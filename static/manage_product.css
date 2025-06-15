@@ -146,6 +146,21 @@ ul.product-list {
     color: #fff9f1;
 }
 
+.in-stock {
+    color: green;
+    font-weight: bold;
+}
+
+.out-of-stock {
+    color: red !important;
+    font-weight: bold;
+}
+
+.out-of-stock-item {
+    opacity: 0.6;
+}
+
+
 /* Footer Styling */
 footer {
     background-color: #3e2723; /* Dark chocolate background */
